@@ -549,6 +549,7 @@
 
   // ----------------------------------------------------------------- panel UI
   let panelEl = null;
+  let panelTimer = null;
   function showPanel(kind, text) {
     if (!panelEl) {
       panelEl = document.createElement("div");
@@ -562,16 +563,30 @@
         "border-radius:8px",
         "font:12px/1.4 -apple-system,Segoe UI,Roboto,sans-serif",
         "box-shadow:0 4px 16px rgba(0,0,0,.25)",
-        "white-space:pre-wrap",
+        "display:flex",
+        "align-items:flex-start",
+        "gap:8px",
       ].join(";");
+      const msg = document.createElement("span");
+      msg.style.cssText = "white-space:pre-wrap";
+      const close = document.createElement("button");
+      close.textContent = "✕";
+      close.setAttribute("aria-label", "Dismiss");
+      close.style.cssText =
+        "flex:0 0 auto;background:transparent;border:0;color:#fff;cursor:pointer;font:14px/1 sans-serif;padding:0;opacity:.85";
+      close.addEventListener("click", hidePanel);
+      panelEl.append(msg, close);
+      panelEl.__msg = msg;
       document.documentElement.appendChild(panelEl);
     }
-    const bg = kind === "error" ? "#b71c1c" : kind === "ok" ? "#1b5e20" : "#263238";
-    panelEl.style.background = bg;
+    panelEl.style.background = kind === "error" ? "#b71c1c" : kind === "ok" ? "#1b5e20" : "#263238";
     panelEl.style.color = "#fff";
-    panelEl.textContent = `${PREFIX} ${text}`;
+    panelEl.__msg.textContent = `${PREFIX} ${text}`;
+    clearTimeout(panelTimer);
+    if (kind !== "error") panelTimer = setTimeout(hidePanel, 8000); // errors stay until dismissed
   }
   function hidePanel() {
+    clearTimeout(panelTimer);
     if (panelEl) panelEl.remove();
     panelEl = null;
   }

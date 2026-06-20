@@ -42,15 +42,28 @@
     "font:12px/1.4 -apple-system,Segoe UI,Roboto,sans-serif",
     "box-shadow:0 4px 14px rgba(0,0,0,.25)",
     "display:none",
-    "white-space:pre-wrap",
+    "align-items:flex-start",
+    "gap:8px",
   ].join(";");
+  const toastMsg = document.createElement("span");
+  toastMsg.style.cssText = "white-space:pre-wrap";
+  const toastClose = document.createElement("button");
+  toastClose.textContent = "✕";
+  toastClose.setAttribute("aria-label", "Dismiss");
+  toastClose.style.cssText =
+    "flex:0 0 auto;background:transparent;border:0;color:#fff;cursor:pointer;font:13px/1 sans-serif;padding:0;opacity:.85";
+  toastClose.addEventListener("click", () => (toast.style.display = "none"));
+  toast.append(toastMsg, toastClose);
 
+  let statusTimer = null;
   function setStatus(text, kind) {
-    toast.style.display = "block";
+    toast.style.display = "flex";
     toast.style.background =
       kind === "error" ? "#b71c1c" : kind === "ok" ? "#1b5e20" : "#263238";
     toast.style.color = "#fff";
-    toast.textContent = text;
+    toastMsg.textContent = text;
+    clearTimeout(statusTimer);
+    if (kind !== "error") statusTimer = setTimeout(() => (toast.style.display = "none"), 8000);
   }
 
   function describe(detail) {
