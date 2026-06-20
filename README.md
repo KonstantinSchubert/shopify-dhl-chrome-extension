@@ -69,11 +69,16 @@ Three equivalent ways to trigger the flow (all funnel through one guarded
 handler, so they can't double-fire):
 
 - **Button:** click **🤖 Auto-create DHL label** (bottom-right).
+  - **Alt/Option-click** = **dry run**: selects the product + option and waits
+    for the rate, but does **NOT** click Create label (no charge). Use this to
+    verify a new product mapping before buying for real.
+  - **Shift-click** = dump a diagnostic.
 - **Keyboard:** press **`Cmd/Ctrl+Shift+Y`** (a DOM `keydown` listener, so
   browser automation can fire it with synthetic input).
 - **Event (most automation-friendly):** evaluate in the page —
   ```js
-  document.dispatchEvent(new CustomEvent('dhl-ext:create-label')); // run the flow
+  document.dispatchEvent(new CustomEvent('dhl-ext:create-label')); // create for real
+  document.dispatchEvent(new CustomEvent('dhl-ext:dry-run'));      // verify only, no charge
   document.dispatchEvent(new CustomEvent('dhl-ext:diagnose'));     // dump diagnostics
   ```
 

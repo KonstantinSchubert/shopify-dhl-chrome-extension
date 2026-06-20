@@ -93,6 +93,30 @@
     return parts.join(" ").replace(/\s+/g, " ").trim();
   }
 
+  // Polaris ResourceList rows keep the radio's <label> text EMPTY and render
+  // the visible content (product name, fulfillment #) in a separate column of
+  // the same row. So for matching we read the whole enclosing row, not just the
+  // control's own label.
+  function rowContainerFor(el) {
+    return (
+      el.closest(
+        'li, tr, fieldset, [role="listitem"], [class*="ResourceItem__ListItem"], [class*="ResourceItem"]'
+      ) || null
+    );
+  }
+  function rowTextFor(el) {
+    const row = rowContainerFor(el);
+    let t = row ? (row.textContent || "").replace(/\s+/g, " ").trim() : "";
+    if (t) return t;
+    // No recognizable row container — climb to the nearest non-empty ancestor.
+    let node = el.parentElement;
+    for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
+      const x = (node.textContent || "").replace(/\s+/g, " ").trim();
+      if (x) return x;
+    }
+    return visibleTextFor(el, 5);
+  }
+
   function isVisible(el) {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
@@ -186,17 +210,14 @@
   // ------------------------------------------------------------ order/fulfilment
   function readOrderInfo() {
     const body = (document.body.innerText || "").replace(/\s+/g, " ");
-    // e.g. "#2071-F2" or "#2071"
-    const m = body.match(/#(\d{2,})(?:-F(\d+))?/);
-    const orderNumber = m ? m[1] : null;
-    const fulfillmentName = m
-      ? m[2]
-        ? `${m[1]}-F${m[2]}`
-        : m[1]
-      : null;
+    // Prefer the fulfillment token (e.g. "#2071-F2", "#2072-FO1") over a bare
+    // order number that may appear first elsewhere on the page.
+    const ful = body.match(/#(\d{2,})-(F[O0]?\d+)/i);
+    const ord = body.match(/#(\d{2,})/);
+    const orderNumber = (ful && ful[1]) || (ord && ord[1]) || null;
     return {
       orderName: orderNumber ? `#${orderNumber}` : null,
-      fulfillmentName, // used for the downloaded filename
+      fulfillmentName: ful ? `${ful[1]}-${ful[2]}` : null, // for the downloaded filename
     };
   }
 
@@ -205,7 +226,7 @@
     const els = [
       ...document.querySelectorAll('input[type="radio"], [role="radio"]'),
     ];
-    return els.map((el) => ({ el, text: visibleTextFor(el, 3) }));
+    return els.map((el) => ({ el, text: rowTextFor(el) }));
   }
 
   function findProductInput(rule) {
@@ -259,7 +280,7 @@
     }
     const boxes = [
       ...document.querySelectorAll('input[type="checkbox"], [role="checkbox"], [role="switch"]'),
-    ].map((el) => ({ el, text: visibleTextFor(el, 2) }));
+    ].map((el) => ({ el, text: rowTextFor(el) }));
     for (const label of option.labels || []) {
       const hit = boxes.find((c) => label.test(c.text));
       if (hit) return hit;
@@ -328,7 +349,8 @@
   }
 
   // --------------------------------------------------------------- main flow
-  async function createLabel() {
+  async function createLabel(opts = {}) {
+    const dryRun = !!opts.dryRun;
     hidePanel();
     const dest = readDestinationCountry();
     if (!dest.ok) return { error: dest.error };
@@ -340,8 +362,11 @@
     // 1–2: find + select product
     const product = findProductInput(rule);
     if (!product) {
+      const seen = radioCandidates()
+        .map((c) => `"${(c.text || "").slice(0, 70)}"`)
+        .join(" | ");
       return {
-        error: `Shipping product "${rule.name}" not found for ${dest.country}. Aborting (won't guess).`,
+        error: `Shipping product "${rule.name}" not found for ${dest.country}. Aborting (won't guess). Radios seen: [ ${seen} ]`,
       };
     }
     log("product candidate:", product.text.slice(0, 80));
@@ -368,8 +393,28 @@
       };
     }
 
-    // optional: pre-name the download
     const order = readOrderInfo();
+    const detail = {
+      order: order.orderName,
+      fulfillment: order.fulfillmentName,
+      country: dest.country,
+      category: dest.category,
+      product: (product.text || "").slice(0, 80),
+      option: rule.option ? rule.option.name : "(none)",
+    };
+
+    // Dry run: everything verified, but DO NOT buy the label.
+    if (dryRun) {
+      log("DRY RUN — stopping before Create label");
+      return {
+        ok: true,
+        dryRun: true,
+        detail,
+        note: "DRY RUN — product + option verified; Create label was NOT clicked.",
+      };
+    }
+
+    // optional: pre-name the download
     if (order.fulfillmentName) {
       try {
         await chrome.runtime.sendMessage({
@@ -390,13 +435,6 @@
 
     // 6: wait for Download control, then click it
     const dlReady = await waitFor(() => !!findDownloadControl(), CONFIG.downloadTimeoutMs);
-    const detail = {
-      order: order.orderName,
-      fulfillment: order.fulfillmentName,
-      country: dest.country,
-      category: dest.category,
-      product: product.text.slice(0, 80),
-    };
     if (!dlReady) {
       return {
         ok: true,
@@ -412,6 +450,7 @@
   // ------------------------------------------------------- Phase-1 diagnostic
   function describeControl(el) {
     const r = el.getBoundingClientRect();
+    const row = rowContainerFor(el) || el.parentElement;
     return {
       tag: el.tagName.toLowerCase(),
       type: el.getAttribute("type") || el.getAttribute("role") || "",
@@ -421,7 +460,8 @@
       checked: readChecked(el),
       disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
       rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
-      text: visibleTextFor(el, 3).slice(0, 120),
+      text: rowTextFor(el).slice(0, 160),
+      rowHtml: (row?.outerHTML || "").slice(0, 1500),
     };
   }
 
@@ -511,14 +551,15 @@
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || typeof msg !== "object") return false;
 
-    if (msg.action === "createLabel") {
-      createLabel()
+    if (msg.action === "createLabel" || msg.action === "dryRun") {
+      const dryRun = msg.action === "dryRun";
+      createLabel({ dryRun })
         .then((res) => {
           if (res.error) {
             errlog(res.error);
             showPanel("error", res.error);
           } else {
-            showPanel("ok", "Label flow done: " + JSON.stringify(res.detail));
+            showPanel(res.dryRun ? "info" : "ok", (res.dryRun ? "DRY RUN ok: " : "Label flow done: ") + JSON.stringify(res.detail));
           }
           sendResponse(res);
         })

@@ -15,7 +15,6 @@
   // --- floating button + status toast -----------------------------------
   const btn = document.createElement("button");
   btn.textContent = "🤖 Auto-create DHL label";
-  btn.title = "Click to auto-select product + create label.\nShift-click to dump a diagnostic to the console.";
   btn.style.cssText = [
     "position:fixed",
     "right:16px",
@@ -55,11 +54,16 @@
   }
 
   function describe(detail) {
-    if (!detail) return "Done.";
-    const bits = [detail.order, detail.fulfillment, detail.country, detail.product].filter(
-      Boolean
-    );
-    return "Created: " + bits.join(" · ");
+    if (!detail) return "(no detail)";
+    return [
+      detail.order,
+      detail.fulfillment,
+      detail.country,
+      detail.product,
+      detail.option && "opt: " + detail.option,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   // Diagnostic panel rendered in the admin frame, so it can be read or
@@ -118,7 +122,14 @@
     if (running) return;
     running = true;
     btn.disabled = true;
-    setStatus(action === "diagnose" ? "Running diagnostic…" : "Working… do not navigate.", "info");
+    setStatus(
+      action === "diagnose"
+        ? "Running diagnostic…"
+        : action === "dryRun"
+        ? "Dry run — verifying (will NOT buy a label)…"
+        : "Working… do not navigate.",
+      "info"
+    );
     try {
       const res = await chrome.runtime.sendMessage({ from: "admin-ui", action });
       if (!res) setStatus("❌ No response from background.", "error");
@@ -127,7 +138,8 @@
         renderDiagnostic(res.diagnostic);
         setStatus("🔍 Diagnostic rendered (panel, bottom-left) and logged to console.", "info");
       }
-      else setStatus("✅ " + describe(res.detail) + (res.note ? "\n⚠️ " + res.note : ""), "ok");
+      else if (res.dryRun) setStatus("🧪 DRY RUN — " + describe(res.detail) + (res.note ? "\n" + res.note : ""), "info");
+      else setStatus("✅ Created: " + describe(res.detail) + (res.note ? "\n⚠️ " + res.note : ""), "ok");
     } catch (err) {
       setStatus("❌ " + (err?.message || String(err)), "error");
     } finally {
@@ -136,7 +148,14 @@
     }
   }
 
-  btn.addEventListener("click", (e) => run(e.shiftKey ? "diagnose" : "createLabel"));
+  // Plain click = create label · Alt/Option-click = dry run · Shift-click = diagnose
+  btn.title =
+    "Click: auto-select product + create label.\n" +
+    "Alt/Option-click: DRY RUN (verify only, does NOT buy).\n" +
+    "Shift-click: dump a diagnostic.";
+  btn.addEventListener("click", (e) =>
+    run(e.shiftKey ? "diagnose" : e.altKey ? "dryRun" : "createLabel")
+  );
 
   // Automation-accessible triggers. These travel through the shared DOM, so
   // browser automation can fire them via synthetic input / page evaluation
@@ -157,6 +176,7 @@
     true
   );
   document.addEventListener("dhl-ext:create-label", () => run("createLabel"));
+  document.addEventListener("dhl-ext:dry-run", () => run("dryRun"));
   document.addEventListener("dhl-ext:diagnose", () => run("diagnose"));
 
   // --- mount + SPA route watching ---------------------------------------

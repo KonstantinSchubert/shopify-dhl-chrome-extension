@@ -66,7 +66,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== "object") return false;
 
   // From admin-ui.js floating button.
-  if (msg.from === "admin-ui" && (msg.action === "createLabel" || msg.action === "diagnose")) {
+  if (
+    msg.from === "admin-ui" &&
+    (msg.action === "createLabel" || msg.action === "dryRun" || msg.action === "diagnose")
+  ) {
     relayToDhlFrame(sender.tab?.id, msg.action).then(sendResponse);
     return true; // async
   }
