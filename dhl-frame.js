@@ -43,9 +43,11 @@
         option: null,
       },
       US: {
-        name: "DHL Paket",
-        labels: [/dhl\s*paket\b/i],
-        codes: [],
+        // For this account, US shipments use Paket International (V53WPAK) +
+        // Postal Delivery Duty Paid. ("DHL Paket" is not in the product list.)
+        name: "Paket International (V53WPAK)",
+        labels: [/paket international/i],
+        codes: [/V53WPAK/i],
         option: {
           name: "Postal Delivery Duty Paid (DDP)",
           ids: ["postalDeliveryDutyPaidCheckbox"], // observed stable id
@@ -201,8 +203,8 @@
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean)
-      .filter((l) => !/@/.test(l) && l.toLowerCase() !== "destination");
-    const countryName = lines.length ? lines[lines.length - 1] : code || "";
+      .filter((l) => !/@/.test(l) && !/^[+\d][\d\s/()-]{5,}$/.test(l) && l.toLowerCase() !== "destination"); // drop email + phone + heading
+    const countryName = code || (lines.length ? lines[lines.length - 1] : "");
 
     return { ok: true, category, code, country: countryName, raw: text.slice(0, 300) };
   }
@@ -298,6 +300,13 @@
     }
     const el = found.el;
     if (readChecked(el) === option.desired) return { ok: true }; // already correct (idempotent)
+
+    if (el.disabled || el.getAttribute("aria-disabled") === "true") {
+      return {
+        ok: false,
+        error: `Option "${option.name}" is disabled — cannot set it to ${option.desired}. (Is the right product selected?)`,
+      };
+    }
 
     el.click();
     await delay(60);
