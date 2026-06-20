@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Post & DHL Shipping — Label Auto-Selector",
+  "version": "0.1.0",
+  "description": "Operates the shipping-product controls inside the Post & DHL Shipping app's cross-origin iframe in Shopify Admin, so the daily label routine can be automated.",
+  "permissions": ["downloads", "webNavigation"],
+  "host_permissions": [
+    "https://admin.shopify.com/*",
+    "https://dhlshipping.app/*",
+    "https://*.dhlshipping.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://admin.shopify.com/store/*"],
+      "js": ["admin-ui.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://dhlshipping.app/*",
+        "https://*.dhlshipping.app/*"
+      ],
+      "js": ["dhl-frame.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "commands": {
+    "create-label": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "Auto-create the DHL label for the selected fulfillment"
+    }
+  }
+}
