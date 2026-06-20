@@ -364,7 +364,11 @@
   // or Polaris <s-button> web components). We read the URL and download it via
   // the background, because clicking opens a new tab (target=_blank) and
   // downloads fired inside this embedded iframe can be blocked by the sandbox.
-  // Prefer the per-shipment label; fall back to the "all" bundle.
+  //
+  // Prefer the "Download labels" bundle (…/label/<id>/all): for cross-border
+  // (e.g. US) it contains the shipment label *and* the CN23 customs
+  // declaration; for a single-label order it's just that label. Fall back to
+  // the per-shipment label if the bundle control isn't present.
   function findLabelUrl() {
     const href = (sel) => {
       const el = document.querySelector(sel);
@@ -372,11 +376,11 @@
       return v && /^https?:/i.test(v) ? v : null;
     };
     return (
+      href('#downloadLabelsButton[href]') || // toolbar "Download labels" (all documents)
+      href('[href*="/label/"][href*="/all"]') ||
       href('#downloadPaketLabels[href]') || // popover: shipment label only
       href('a[id^="download-pdf"][href]') || // per-row inline PDF anchor
-      href('#downloadLabelsButton[href]') || // toolbar "Download labels" (all)
       href('[href*="/label/"][href*="shipment"]') ||
-      href('[href*="/label/"][href*="/all"]') ||
       null
     );
   }
