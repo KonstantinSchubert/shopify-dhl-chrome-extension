@@ -327,19 +327,25 @@
     );
   }
 
-  const DOWNLOAD_RE = /download|herunterladen|\.pdf\b|\bpdf\b|print|drucken|label/i;
+  const DOWNLOAD_RE = /download|herunterladen|\.pdf\b|\bpdf\b/i;
   function findDownloadControl() {
+    // The per-label PDF control is an <a download href=…> with a stable id
+    // like "download-pdf-<productId>". Prefer those exact signals.
+    const direct = document.querySelector(
+      'a[download], [id^="download-pdf"], a[href*="/label/"][href*="shipment"]'
+    );
+    if (direct && isVisible(direct)) return direct;
+
     const els = [
       ...document.querySelectorAll('button, a, [role="button"], [role="link"], [download]'),
     ];
     return (
       els.find((el) => {
         if (!isVisible(el)) return false;
+        if (el.id === "createLabel" || /create\s*label/i.test(el.textContent || "")) return false;
         const t = `${el.textContent || ""} ${el.getAttribute("aria-label") || ""} ${
           el.getAttribute("title") || ""
-        } ${el.getAttribute("href") || ""}`;
-        // Exclude the Create-label button itself.
-        if (el.id === "createLabel" || /create\s*label/i.test(el.textContent || "")) return false;
+        } ${el.getAttribute("href") || ""} ${el.id}`;
         return el.hasAttribute("download") || DOWNLOAD_RE.test(t);
       }) || null
     );
