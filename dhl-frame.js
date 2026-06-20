@@ -167,44 +167,43 @@
 
   // -------------------------------------------------------- destination card
   function readDestinationCountry() {
-    // Find a leaf element whose own text is exactly "Destination".
-    const head = [...document.querySelectorAll("*")].find(
-      (e) =>
-        e.children.length === 0 &&
-        e.textContent.trim().toLowerCase() === "destination"
-    );
-    if (!head) {
+    // The destination card is `[data-testid^="toAddress"]`. The most reliable
+    // country signal is the flag image (…/flags/4x3/<iso2>.svg).
+    const card = document.querySelector('[data-testid^="toAddress" i]');
+    if (!card) {
       return {
         ok: false,
-        error:
-          "Could not find the 'Destination' card — run the Phase-1 diagnostic and tune selectors.",
+        error: "Destination card ([data-testid^=toAddress]) not found.",
       };
     }
-    const card =
-      head.closest(
-        'section,article,[class*="Card"],[class*="card"],[class*="Box"]'
-      ) ||
-      head.parentElement?.parentElement ||
-      head.parentElement;
     const text = (card.innerText || card.textContent || "").trim();
     const lines = text
       .split("\n")
       .map((s) => s.trim())
-      .filter(Boolean)
-      .filter((l) => l.toLowerCase() !== "destination");
-    // The country renders right after the "Destination" heading (the rest of
-    // the card is the recipient's street address).
-    const country = lines[0] || "";
+      .filter(Boolean);
+    const countryName = lines.length ? lines[lines.length - 1] : ""; // last line of the address block
 
-    for (const rule of CONFIG.countryRules) {
-      if (rule.test.test(text)) {
-        return { ok: true, category: rule.category, country, raw: text.slice(0, 300) };
+    let code = null;
+    const flag = card.querySelector('img[src*="/flags/"]');
+    if (flag) {
+      const m = (flag.getAttribute("src") || "").match(/\/flags\/[^/]+\/([a-z]{2})\.svg/i);
+      if (m) code = m[1].toUpperCase();
+    }
+    // Fallback: classify by name text if the flag wasn't found.
+    if (!code) {
+      for (const rule of CONFIG.countryRules) {
+        if (rule.test.test(text)) {
+          return { ok: true, category: rule.category, country: countryName, raw: text.slice(0, 300) };
+        }
       }
+      if (!countryName) {
+        return { ok: false, error: "Destination card found but no country could be read." };
+      }
+      return { ok: true, category: "INTL", country: countryName, raw: text.slice(0, 300) };
     }
-    if (!country) {
-      return { ok: false, error: "Destination card found but no country line could be read." };
-    }
-    return { ok: true, category: "INTL", country, raw: text.slice(0, 300) };
+
+    const category = code === "DE" ? "DE" : code === "US" ? "US" : "INTL";
+    return { ok: true, category, country: countryName || code, code, raw: text.slice(0, 300) };
   }
 
   // ------------------------------------------------------------ order/fulfilment
@@ -318,6 +317,8 @@
 
   // ----------------------------------------------------- create / download
   function findCreateLabelButton() {
+    const byId = document.getElementById("createLabel"); // observed stable id
+    if (byId) return byId;
     const btns = [...document.querySelectorAll('button, [role="button"], input[type="submit"]')];
     return (
       btns.find((b) => /create\s*label/i.test(b.textContent || b.value || "") && isVisible(b)) ||
