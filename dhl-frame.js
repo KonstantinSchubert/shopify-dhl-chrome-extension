@@ -23,11 +23,13 @@
   const CONFIG = {
     // Country classification, evaluated in order; first match wins.
     // Anything that matches neither DE nor US is treated as INTL.
+    // Classify by searching the whole Destination card text for name variants.
+    // First match wins; anything that matches neither is treated as INTL.
     countryRules: [
-      { category: "DE", test: /\b(germany|deutschland)\b/i },
+      { category: "DE", test: /\b(germany|deutschland|allemagne|alemania|germania|duitsland)\b/i },
       {
         category: "US",
-        test: /\b(united states|u\.?\s?s\.?\s?a?\.?|vereinigte staaten)\b/i,
+        test: /\b(united states(?: of america)?|u\.?\s?s\.?\s?a\.?|usa|vereinigte staaten|états[- ]?unis|estados unidos)\b/i,
       },
     ],
 
@@ -176,35 +178,33 @@
         error: "Destination card ([data-testid^=toAddress]) not found.",
       };
     }
-    const text = (card.innerText || card.textContent || "").trim();
-    const lines = text
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .filter((l) => !/@/.test(l) && l.toLowerCase() !== "destination"); // drop email + heading
-    const countryName = lines.length ? lines[lines.length - 1] : ""; // last line of the address block
+    const text = (card.innerText || card.textContent || "").replace(/\s+/g, " ").trim();
 
+    // Classify by searching the WHOLE card text for country-name variants —
+    // robust to where the country renders. Neither match ⇒ INTL.
+    let category = "INTL";
+    for (const rule of CONFIG.countryRules) {
+      if (rule.test.test(text)) {
+        category = rule.category;
+        break;
+      }
+    }
+
+    // Display-only country name: flag iso2 if present, else last non-email line.
     let code = null;
     const flag = card.querySelector('img[src*="/flags/"]');
     if (flag) {
       const m = (flag.getAttribute("src") || "").match(/\/flags\/[^/]+\/([a-z]{2})\.svg/i);
       if (m) code = m[1].toUpperCase();
     }
-    // Fallback: classify by name text if the flag wasn't found.
-    if (!code) {
-      for (const rule of CONFIG.countryRules) {
-        if (rule.test.test(text)) {
-          return { ok: true, category: rule.category, country: countryName, raw: text.slice(0, 300) };
-        }
-      }
-      if (!countryName) {
-        return { ok: false, error: "Destination card found but no country could be read." };
-      }
-      return { ok: true, category: "INTL", country: countryName, raw: text.slice(0, 300) };
-    }
+    const lines = (card.innerText || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((l) => !/@/.test(l) && l.toLowerCase() !== "destination");
+    const countryName = lines.length ? lines[lines.length - 1] : code || "";
 
-    const category = code === "DE" ? "DE" : code === "US" ? "US" : "INTL";
-    return { ok: true, category, country: countryName || code, code, raw: text.slice(0, 300) };
+    return { ok: true, category, code, country: countryName, raw: text.slice(0, 300) };
   }
 
   // ------------------------------------------------------------ order/fulfilment
