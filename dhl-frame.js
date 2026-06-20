@@ -560,6 +560,12 @@
         firstControl.parentElement;
       result.productContainerHtml = (container?.outerHTML || "").slice(0, 6000);
     }
+    // The actual product-selection section (covers cases where the product is
+    // not an <input type=radio>, e.g. a single domestic product).
+    const prodSection = document.querySelector(
+      "#account-product-options, #product-selection-menu, #additional-info-address"
+    );
+    if (prodSection) result.productSectionHtml = prodSection.outerHTML.slice(0, 8000);
 
     log("===== Phase-1 diagnostic =====");
     log("URL:", result.href);
