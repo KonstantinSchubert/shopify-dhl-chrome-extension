@@ -90,6 +90,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
+  // From dhl-frame.js: download the label PDF directly (bypasses the embedded
+  // iframe's sandbox and the on-page buttons' new-tab behaviour).
+  if (msg.from === "dhl-frame" && msg.action === "downloadLabel" && msg.url) {
+    const opts = { url: msg.url, conflictAction: "uniquify", saveAs: false };
+    if (msg.filename) opts.filename = msg.filename.replace(/[\\/:*?"<>|]+/g, "_");
+    chrome.downloads.download(opts).then(
+      (id) => sendResponse({ ok: true, id, filename: opts.filename || null }),
+      (e) => sendResponse({ error: e?.message || String(e) })
+    );
+    return true; // async
+  }
+
   // From dhl-frame.js: remember the next download's filename.
   if (msg.from === "dhl-frame" && msg.action === "expectDownload") {
     pendingFilename = typeof msg.filename === "string" ? msg.filename : null;

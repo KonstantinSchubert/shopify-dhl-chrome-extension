@@ -360,6 +360,27 @@
     );
   }
 
+  // The label PDF URL lives as an href on the post-create controls (plain <a>
+  // or Polaris <s-button> web components). We read the URL and download it via
+  // the background, because clicking opens a new tab (target=_blank) and
+  // downloads fired inside this embedded iframe can be blocked by the sandbox.
+  // Prefer the per-shipment label; fall back to the "all" bundle.
+  function findLabelUrl() {
+    const href = (sel) => {
+      const el = document.querySelector(sel);
+      const v = el && (el.getAttribute("href") || el.getAttribute("data-href") || "");
+      return v && /^https?:/i.test(v) ? v : null;
+    };
+    return (
+      href('#downloadPaketLabels[href]') || // popover: shipment label only
+      href('a[id^="download-pdf"][href]') || // per-row inline PDF anchor
+      href('#downloadLabelsButton[href]') || // toolbar "Download labels" (all)
+      href('[href*="/label/"][href*="shipment"]') ||
+      href('[href*="/label/"][href*="/all"]') ||
+      null
+    );
+  }
+
   function isEnabled(btn) {
     return (
       btn &&
@@ -435,37 +456,32 @@
       };
     }
 
-    // optional: pre-name the download
-    if (order.fulfillmentName) {
-      try {
-        await chrome.runtime.sendMessage({
-          from: "dhl-frame",
-          action: "expectDownload",
-          filename: `${order.fulfillmentName}.pdf`,
-        });
-      } catch (e) {
-        warn("could not register filename:", e?.message || e);
-      }
-    }
-
     // 5: create the label
     const createBtn = findCreateLabelButton();
     if (!isEnabled(createBtn)) return { error: "Create label button vanished/disabled at click time." };
     log("clicking Create label");
     createBtn.click();
 
-    // 6: wait for Download control, then click it
-    const dlReady = await waitFor(() => !!findDownloadControl(), CONFIG.downloadTimeoutMs);
-    if (!dlReady) {
-      return {
-        ok: true,
-        detail,
-        note: "Label created, but Download control not found — download manually.",
-      };
+    // 6: wait for the label PDF URL to appear, then download it via the
+    // background (chrome.downloads), which bypasses the iframe sandbox and the
+    // new-tab behaviour of the on-page buttons.
+    const ready6 = await waitFor(() => !!findLabelUrl(), CONFIG.downloadTimeoutMs);
+    const url = findLabelUrl();
+    if (!ready6 || !url) {
+      return { ok: true, detail, note: "Label created, but no download URL appeared — download manually." };
     }
-    log("clicking Download");
-    findDownloadControl().click();
-    return { ok: true, detail };
+    const filename = order.fulfillmentName ? `${order.fulfillmentName}.pdf` : "";
+    log("downloading label", url, "as", filename || "(browser default)");
+    let dl = null;
+    try {
+      dl = await chrome.runtime.sendMessage({ from: "dhl-frame", action: "downloadLabel", url, filename });
+    } catch (e) {
+      dl = { error: e?.message || String(e) };
+    }
+    if (!dl || dl.error) {
+      return { ok: true, detail, note: "Label created, but download failed: " + (dl?.error || "no reply from background") };
+    }
+    return { ok: true, detail: { ...detail, savedAs: dl.filename || filename || "(browser default)" } };
   }
 
   // ------------------------------------------------------- Phase-1 diagnostic
