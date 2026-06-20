@@ -71,6 +71,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async
   }
 
+  // From dhl-frame.js: forward a diagnostic up to the admin top frame so it can
+  // be read/screenshot there (the dhl frame is a separate console context).
+  if (msg.from === "dhl-frame" && msg.action === "diagnostic") {
+    const tabId = sender.tab?.id;
+    if (tabId != null) {
+      chrome.tabs
+        .sendMessage(
+          tabId,
+          { from: "background", action: "diagnostic", diagnostic: msg.diagnostic },
+          { frameId: 0 }
+        )
+        .catch(() => {});
+    }
+    return false;
+  }
+
   // From dhl-frame.js: remember the next download's filename.
   if (msg.from === "dhl-frame" && msg.action === "expectDownload") {
     pendingFilename = typeof msg.filename === "string" ? msg.filename : null;
@@ -97,11 +113,3 @@ if (chrome.downloads?.onDeterminingFilename) {
     }
   });
 }
-
-// Keyboard command (Cmd/Ctrl+Shift+L) → run on the active tab.
-chrome.commands?.onCommand.addListener(async (command) => {
-  if (command !== "create-label") return;
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const res = await relayToDhlFrame(tab?.id, "createLabel");
-  log("command result", res);
-});

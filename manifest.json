@@ -28,14 +28,5 @@
       "run_at": "document_idle",
       "all_frames": true
     }
-  ],
-  "commands": {
-    "create-label": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+L",
-        "mac": "Command+Shift+L"
-      },
-      "description": "Auto-create the DHL label for the selected fulfillment"
-    }
-  }
+  ]
 }

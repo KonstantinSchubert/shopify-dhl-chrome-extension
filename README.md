@@ -21,9 +21,9 @@ the outer orchestration. See the build spec for full context.
 
 | File | Role |
 |---|---|
-| `manifest.json` | MV3 manifest, matches, permissions, `Cmd/Ctrl+Shift+L` command |
+| `manifest.json` | MV3 manifest, matches, permissions |
 | `dhl-frame.js` | Content script **inside** the `dhlshipping.app` iframe — all DOM logic + diagnostics |
-| `admin-ui.js` | Floating **"🤖 Auto-create DHL label"** button in the top admin frame |
+| `admin-ui.js` | Floating button + keyboard/event triggers in the top admin frame |
 | `background.js` | Relays admin-frame → DHL-frame messages; optional download-filename control |
 
 ## Install (unpacked)
@@ -50,22 +50,41 @@ The DHL frame's DOM was never inspectable cross-origin, so the selectors in
 `dhl-frame.js` are defensive guesses. Before trusting the action flow:
 
 1. Open a real **Create Label** page and select a fulfillment row.
-2. The frame script auto-dumps a `[DHL-EXT]` diagnostic to the console on load.
-   You can also **shift-click** the floating button to re-dump on demand.
-3. In DevTools, select the **`dhlshipping.app` frame** as the console context
-   (the frame dropdown at the top of the Console). Read the dump: every radio /
-   checkbox with its `name`/`value`/`id`/`checked`/`disabled`/rect/nearest text,
-   the product-container HTML, the detected destination, and the Create/Download
-   controls.
+2. On load, the DHL frame auto-runs a diagnostic and **pushes it up to the admin
+   frame**, where it renders in a **dark panel (bottom-left)** and is logged to
+   the admin-frame console. The panel's `<pre id="dhl-ext-diag-json">` is plain
+   JSON — readable/screenshot-able by automation, no DevTools needed. You can
+   also **shift-click** the floating button (or fire `dhl-ext:diagnose`) to
+   re-dump on demand.
+3. The dump contains every radio / checkbox (`name`/`value`/`id`/`checked`/
+   `disabled`/rect/nearest text), a truncated product-container HTML, the
+   detected destination, order, and the Create/Download controls. (The same
+   `[DHL-EXT]` data is also in the `dhlshipping.app` frame console if you prefer.)
 4. Tighten the `CONFIG` regexes in `dhl-frame.js` from that real output if the
    defaults don't match.
 
 ## Phase 2 — run it
 
-- Click **🤖 Auto-create DHL label** (or press `Cmd/Ctrl+Shift+L`).
+Three equivalent ways to trigger the flow (all funnel through one guarded
+handler, so they can't double-fire):
+
+- **Button:** click **🤖 Auto-create DHL label** (bottom-right).
+- **Keyboard:** press **`Cmd/Ctrl+Shift+Y`** (a DOM `keydown` listener, so
+  browser automation can fire it with synthetic input).
+- **Event (most automation-friendly):** evaluate in the page —
+  ```js
+  document.dispatchEvent(new CustomEvent('dhl-ext:create-label')); // run the flow
+  document.dispatchEvent(new CustomEvent('dhl-ext:diagnose'));     // dump diagnostics
+  ```
+
+Then:
+
 - Watch the toast / the in-frame panel for `✅` success or a `❌` abort reason.
 - Every step is **idempotent and verified** — re-running on an already-correct
   page is safe and won't create duplicate labels.
+
+> The keyboard shortcut is one line in `admin-ui.js` (the `keydown` listener) —
+> change `e.key === "y"` if `Cmd/Ctrl+Shift+Y` ever collides with something.
 
 ## Safety
 

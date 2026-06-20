@@ -46,6 +46,7 @@
         codes: [],
         option: {
           name: "Postal Delivery Duty Paid (DDP)",
+          ids: ["postalDeliveryDutyPaidCheckbox"], // observed stable id
           labels: [/postal delivery duty paid/i, /\bDDP\b/, /duty paid/i],
           desired: true,
         },
@@ -56,6 +57,7 @@
         codes: [/V66WPI/i],
         option: {
           name: "Premium",
+          ids: ["premiumCheckbox"], // observed stable id
           labels: [/\bpremium\b/i],
           desired: true,
         },
@@ -164,9 +166,11 @@
     const lines = text
       .split("\n")
       .map((s) => s.trim())
-      .filter(Boolean);
-    // The country is conventionally the last line of an address block.
-    const country = lines.length ? lines[lines.length - 1] : "";
+      .filter(Boolean)
+      .filter((l) => l.toLowerCase() !== "destination");
+    // The country renders right after the "Destination" heading (the rest of
+    // the card is the recipient's street address).
+    const country = lines[0] || "";
 
     for (const rule of CONFIG.countryRules) {
       if (rule.test.test(text)) {
@@ -247,11 +251,16 @@
   }
 
   // -------------------------------------------------------------- option box
-  function findCheckbox(labels) {
+  function findCheckboxFor(option) {
+    // Prefer stable ids when known, fall back to visible-text matching.
+    for (const id of option.ids || []) {
+      const el = document.getElementById(id);
+      if (el) return { el, text: visibleTextFor(el, 2) };
+    }
     const boxes = [
       ...document.querySelectorAll('input[type="checkbox"], [role="checkbox"], [role="switch"]'),
     ].map((el) => ({ el, text: visibleTextFor(el, 2) }));
-    for (const label of labels) {
+    for (const label of option.labels || []) {
       const hit = boxes.find((c) => label.test(c.text));
       if (hit) return hit;
     }
@@ -259,7 +268,7 @@
   }
 
   async function ensureOption(option) {
-    const found = findCheckbox(option.labels);
+    const found = findCheckboxFor(option);
     if (!found) {
       return {
         ok: false,
@@ -444,6 +453,16 @@
         : null,
     };
 
+    // Include a truncated product-container HTML so selectors can be worked
+    // out from the admin frame without switching console contexts.
+    const firstControl = document.querySelector('input[type="radio"], [role="radio"]');
+    if (firstControl) {
+      const container =
+        firstControl.closest('[class*="list"], ul, table, fieldset, section') ||
+        firstControl.parentElement;
+      result.productContainerHtml = (container?.outerHTML || "").slice(0, 6000);
+    }
+
     log("===== Phase-1 diagnostic =====");
     log("URL:", result.href);
     log("radios (" + radios.length + "):", radios);
@@ -452,14 +471,9 @@
     log("order:", order);
     log("create label button:", result.createLabelButton);
     log("download control:", result.downloadControl);
-    // Product container HTML, truncated, to help lock selectors.
-    const firstRadio = document.querySelector('input[type="radio"], [role="radio"]');
-    if (firstRadio) {
-      const container =
-        firstRadio.closest('[class*="list"], ul, table, fieldset, section') ||
-        firstRadio.parentElement;
-      log("product container outerHTML (truncated):", (container?.outerHTML || "").slice(0, 4000));
-    }
+    // Single copy-pasteable blob (console object trees are collapsed/lossy).
+    log("JSON (copy everything between the <<< >>> markers):");
+    console.log("<<<DHL-EXT-JSON\n" + JSON.stringify(result, null, 2) + "\nDHL-EXT-JSON>>>");
     log("==============================");
     return result;
   }
@@ -531,13 +545,23 @@
     return false;
   });
 
+  // Push a diagnostic to the admin (top) frame via the background worker, so it
+  // can be read/screenshot there without switching console contexts.
+  function pushDiagnostic(d) {
+    try {
+      chrome.runtime.sendMessage({ from: "dhl-frame", action: "diagnostic", diagnostic: d });
+    } catch (e) {
+      warn("could not push diagnostic:", e?.message || e);
+    }
+  }
+
   // On load: announce presence and dump a Phase-1 diagnostic to the console
-  // (logging only — no actions taken).
+  // (logging only — no actions taken), and forward it to the admin frame.
   log("frame script loaded on", location.origin, "frame:", location.href);
   // Defer so the app's UI has settled.
   setTimeout(() => {
     try {
-      diagnose();
+      pushDiagnostic(diagnose());
     } catch (e) {
       warn("auto-diagnose failed:", e?.message || e);
     }
