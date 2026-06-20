@@ -180,7 +180,8 @@
     const lines = text
       .split("\n")
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((l) => !/@/.test(l) && l.toLowerCase() !== "destination"); // drop email + heading
     const countryName = lines.length ? lines[lines.length - 1] : ""; // last line of the address block
 
     let code = null;
@@ -326,16 +327,20 @@
     );
   }
 
+  const DOWNLOAD_RE = /download|herunterladen|\.pdf\b|\bpdf\b|print|drucken|label/i;
   function findDownloadControl() {
     const els = [
-      ...document.querySelectorAll('button, a, [role="button"], [role="link"]'),
+      ...document.querySelectorAll('button, a, [role="button"], [role="link"], [download]'),
     ];
     return (
       els.find((el) => {
+        if (!isVisible(el)) return false;
         const t = `${el.textContent || ""} ${el.getAttribute("aria-label") || ""} ${
           el.getAttribute("title") || ""
-        }`;
-        return /download/i.test(t) && isVisible(el);
+        } ${el.getAttribute("href") || ""}`;
+        // Exclude the Create-label button itself.
+        if (el.id === "createLabel" || /create\s*label/i.test(el.textContent || "")) return false;
+        return el.hasAttribute("download") || DOWNLOAD_RE.test(t);
       }) || null
     );
   }
@@ -479,6 +484,22 @@
     const createBtn = findCreateLabelButton();
     const dlCtl = findDownloadControl();
 
+    // Every button/link, so a download/print control reveals itself.
+    const clickables = [
+      ...document.querySelectorAll('button, a, [role="button"], [role="link"], [download]'),
+    ]
+      .map((el) => ({
+        tag: el.tagName.toLowerCase(),
+        id: el.id || "",
+        text: (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60),
+        aria: el.getAttribute("aria-label") || "",
+        title: el.getAttribute("title") || "",
+        href: el.getAttribute("href") || "",
+        download: el.hasAttribute("download"),
+        visible: isVisible(el),
+      }))
+      .filter((c) => c.text || c.aria || c.title || c.href || c.id || c.download);
+
     const result = {
       href: location.href,
       origin: location.origin,
@@ -492,6 +513,7 @@
       downloadControl: dlCtl
         ? { text: (dlCtl.textContent || dlCtl.getAttribute("aria-label") || "").trim().slice(0, 60) }
         : null,
+      clickables,
     };
 
     // Include a truncated product-container HTML so selectors can be worked
