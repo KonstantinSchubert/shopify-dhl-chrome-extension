@@ -91,11 +91,6 @@ async function relayToAllDhlFrames(tabId, action) {
   return { error: lastErr };
 }
 
-// --- Optional filename control (§6) -------------------------------------
-// dhl-frame.js tells us the intended filename just before it clicks Download.
-let pendingFilename = null;
-let pendingFilenameAt = 0;
-
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== "object") return false;
 
@@ -142,29 +137,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async
   }
 
-  // From dhl-frame.js: remember the next download's filename.
-  if (msg.from === "dhl-frame" && msg.action === "expectDownload") {
-    pendingFilename = typeof msg.filename === "string" ? msg.filename : null;
-    pendingFilenameAt = Date.now();
-    log("expecting download as", pendingFilename);
-    sendResponse({ ok: true });
-    return false;
-  }
-
   return false;
 });
-
-if (chrome.downloads?.onDeterminingFilename) {
-  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-    // Only apply if a filename was requested in the last 60s.
-    if (pendingFilename && Date.now() - pendingFilenameAt < 60_000) {
-      const name = pendingFilename;
-      pendingFilename = null;
-      log("renaming download", item.filename, "->", name);
-      suggest({ filename: name, conflictAction: "uniquify" });
-    } else {
-      pendingFilename = null;
-      suggest();
-    }
-  });
-}
