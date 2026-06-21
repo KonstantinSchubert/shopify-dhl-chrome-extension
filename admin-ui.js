@@ -140,6 +140,8 @@
         ? "Running diagnostic…"
         : action === "dryRun"
         ? "Dry run — verifying (will NOT buy a label)…"
+        : action === "downloadOnly"
+        ? "Downloading existing label…"
         : "Working… do not navigate.",
       "info"
     );
@@ -151,6 +153,7 @@
         renderDiagnostic(res.diagnostic);
         setStatus("🔍 Diagnostic rendered (panel, bottom-left) and logged to console.", "info");
       }
+      else if (res.downloadOnly) setStatus("⬇️ Downloaded: " + (res.detail?.savedAs || "(see Downloads)") + "\n" + (res.detail?.url || ""), "ok");
       else if (res.dryRun) setStatus("🧪 DRY RUN — " + describe(res.detail) + (res.note ? "\n" + res.note : ""), "info");
       else setStatus("✅ Created: " + describe(res.detail) + (res.note ? "\n⚠️ " + res.note : ""), "ok");
     } catch (err) {
@@ -161,36 +164,47 @@
     }
   }
 
-  // Plain click = create label · Alt/Option-click = dry run · Shift-click = diagnose
+  // Click = create label · Alt-click = dry run · Shift-click = diagnose ·
+  // Shift+Alt-click = download only (debug)
   btn.title =
     "Click: auto-select product + create label.\n" +
     "Alt/Option-click: DRY RUN (verify only, does NOT buy).\n" +
-    "Shift-click: dump a diagnostic.";
+    "Shift-click: dump a diagnostic.\n" +
+    "Shift+Alt-click: download the already-created label (debug).";
   btn.addEventListener("click", (e) =>
-    run(e.shiftKey ? "diagnose" : e.altKey ? "dryRun" : "createLabel")
+    run(
+      e.shiftKey && e.altKey
+        ? "downloadOnly"
+        : e.shiftKey
+        ? "diagnose"
+        : e.altKey
+        ? "dryRun"
+        : "createLabel"
+    )
   );
 
   // Automation-accessible triggers. These travel through the shared DOM, so
   // browser automation can fire them via synthetic input / page evaluation
   // (a manifest `commands` shortcut is handled by the browser above the page
   // and is NOT reachable that way):
-  //   • Keyboard: Cmd/Ctrl + Shift + Y  (dispatch a keydown to the page)
-  //   • Event:    document.dispatchEvent(new CustomEvent('dhl-ext:create-label'))
-  //               document.dispatchEvent(new CustomEvent('dhl-ext:diagnose'))
+  //   • Keyboard: Cmd/Ctrl+Shift+Y create · Cmd/Ctrl+Shift+U download-only
+  //   • Events:   dhl-ext:create-label · dhl-ext:dry-run · dhl-ext:diagnose · dhl-ext:download
   window.addEventListener(
     "keydown",
     (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "y" || e.key === "Y")) {
-        if (!onCreateLabelPage()) return;
-        e.preventDefault();
-        run("createLabel");
-      }
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey) return;
+      const k = (e.key || "").toLowerCase();
+      if (k !== "y" && k !== "u") return;
+      if (!onCreateLabelPage()) return;
+      e.preventDefault();
+      run(k === "u" ? "downloadOnly" : "createLabel");
     },
     true
   );
   document.addEventListener("dhl-ext:create-label", () => run("createLabel"));
   document.addEventListener("dhl-ext:dry-run", () => run("dryRun"));
   document.addEventListener("dhl-ext:diagnose", () => run("diagnose"));
+  document.addEventListener("dhl-ext:download", () => run("downloadOnly"));
 
   // --- mount + SPA route watching ---------------------------------------
   const onCreateLabelPage = () => /createlabel/i.test(location.href);

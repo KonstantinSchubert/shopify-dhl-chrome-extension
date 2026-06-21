@@ -511,6 +511,37 @@
     return { ok: true, detail: { ...detail, savedAs: dl.filename || filename || "(browser default)" } };
   }
 
+  // Debug/standalone: download the label PDF for the already-created label on
+  // this page, without creating anything. Lets us test the download step.
+  async function downloadOnly() {
+    const url = findLabelUrl();
+    if (!url) {
+      return { error: "No label download URL on this page (is the label created?)." };
+    }
+    const order = readOrderInfo();
+    const filename = order.fulfillmentName ? `${order.fulfillmentName}.pdf` : "";
+    log("downloadOnly:", url, "as", filename || "(browser default)");
+    let dl = null;
+    try {
+      dl = await chrome.runtime.sendMessage({ from: "dhl-frame", action: "downloadLabel", url, filename });
+    } catch (e) {
+      dl = { error: e?.message || String(e) };
+    }
+    if (!dl || dl.error) {
+      return { error: "Download failed: " + (dl?.error || "no reply from background") + " | url: " + url.slice(0, 90) };
+    }
+    return {
+      ok: true,
+      downloadOnly: true,
+      detail: {
+        order: order.orderName,
+        fulfillment: order.fulfillmentName,
+        savedAs: dl.filename || filename || "(browser default)",
+        url: url.slice(0, 90),
+      },
+    };
+  }
+
   // ------------------------------------------------------- Phase-1 diagnostic
   function describeControl(el) {
     const r = el.getBoundingClientRect();
@@ -662,6 +693,26 @@
             showPanel("error", res.error);
           } else {
             showPanel(res.dryRun ? "info" : "ok", (res.dryRun ? "DRY RUN ok: " : "Label flow done: ") + JSON.stringify(res.detail));
+          }
+          sendResponse(res);
+        })
+        .catch((e) => {
+          const m = String(e?.stack || e);
+          errlog(m);
+          showPanel("error", m);
+          sendResponse({ error: m });
+        });
+      return true; // async
+    }
+
+    if (msg.action === "downloadOnly") {
+      downloadOnly()
+        .then((res) => {
+          if (res.error) {
+            errlog(res.error);
+            showPanel("error", res.error);
+          } else {
+            showPanel("ok", "Downloaded: " + JSON.stringify(res.detail));
           }
           sendResponse(res);
         })

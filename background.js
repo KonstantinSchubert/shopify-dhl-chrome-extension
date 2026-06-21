@@ -57,6 +57,40 @@ async function relayToDhlFrame(tabId, action) {
   }
 }
 
+// Send an action to EVERY dhlshipping.app frame and return the first non-error
+// reply. Used for downloadOnly, where the post-create page may briefly have
+// more than one app frame and only the content one can serve the URL.
+async function relayToAllDhlFrames(tabId, action) {
+  if (tabId == null) return { error: "No tab id." };
+  let frames;
+  try {
+    frames = await chrome.webNavigation.getAllFrames({ tabId });
+  } catch (e) {
+    return { error: "getAllFrames failed: " + (e?.message || e) };
+  }
+  const ids = (frames || [])
+    .filter((f) => {
+      try {
+        return DHL_HOST_RE.test(new URL(f.url).hostname);
+      } catch {
+        return false;
+      }
+    })
+    .map((f) => f.frameId);
+  if (!ids.length) return { error: "DHL app frame not found in this tab." };
+  let lastErr = "No frame handled the request.";
+  for (const frameId of ids) {
+    try {
+      const reply = await chrome.tabs.sendMessage(tabId, { action }, { frameId });
+      if (reply && !reply.error) return reply;
+      if (reply?.error) lastErr = reply.error;
+    } catch (e) {
+      lastErr = e?.message || String(e);
+    }
+  }
+  return { error: lastErr };
+}
+
 // --- Optional filename control (§6) -------------------------------------
 // dhl-frame.js tells us the intended filename just before it clicks Download.
 let pendingFilename = null;
@@ -71,6 +105,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (msg.action === "createLabel" || msg.action === "dryRun" || msg.action === "diagnose")
   ) {
     relayToDhlFrame(sender.tab?.id, msg.action).then(sendResponse);
+    return true; // async
+  }
+
+  // Download-only (debug): try every app frame so the one with the label wins.
+  if (msg.from === "admin-ui" && msg.action === "downloadOnly") {
+    relayToAllDhlFrames(sender.tab?.id, msg.action).then(sendResponse);
     return true; // async
   }
 
