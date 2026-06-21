@@ -680,64 +680,69 @@
     panelEl = null;
   }
 
+  // --------------------------------------------------------- action dispatch
+  // Shared by both the relayed messages (button / admin frame) and the
+  // in-frame keyboard shortcuts (so they work when focus is inside the iframe).
+  let busy = false;
+  async function runAction(action) {
+    if (action === "diagnose") {
+      try {
+        const d = diagnose();
+        showPanel("info", "Diagnostic logged (" + d.radios.length + " radios, " + d.checkboxes.length + " checkboxes).");
+        return { ok: true, diagnostic: d };
+      } catch (e) {
+        const m = String(e?.stack || e);
+        errlog(m);
+        return { error: m };
+      }
+    }
+    if (busy) return { error: "Busy — an action is already running." };
+    busy = true;
+    try {
+      if (action === "downloadOnly") {
+        const res = await downloadOnly();
+        if (res.error) { errlog(res.error); showPanel("error", res.error); }
+        else showPanel("ok", "Downloaded: " + JSON.stringify(res.detail));
+        return res;
+      }
+      const dryRun = action === "dryRun";
+      const res = await createLabel({ dryRun });
+      if (res.error) { errlog(res.error); showPanel("error", res.error); }
+      else showPanel(res.dryRun ? "info" : "ok", (res.dryRun ? "DRY RUN ok: " : "Label flow done: ") + JSON.stringify(res.detail));
+      return res;
+    } catch (e) {
+      const m = String(e?.stack || e);
+      errlog(m);
+      showPanel("error", m);
+      return { error: m };
+    } finally {
+      busy = false;
+    }
+  }
+
   // ----------------------------------------------------------- message wiring
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || typeof msg !== "object") return false;
-
-    if (msg.action === "createLabel" || msg.action === "dryRun") {
-      const dryRun = msg.action === "dryRun";
-      createLabel({ dryRun })
-        .then((res) => {
-          if (res.error) {
-            errlog(res.error);
-            showPanel("error", res.error);
-          } else {
-            showPanel(res.dryRun ? "info" : "ok", (res.dryRun ? "DRY RUN ok: " : "Label flow done: ") + JSON.stringify(res.detail));
-          }
-          sendResponse(res);
-        })
-        .catch((e) => {
-          const m = String(e?.stack || e);
-          errlog(m);
-          showPanel("error", m);
-          sendResponse({ error: m });
-        });
+    if (["createLabel", "dryRun", "downloadOnly", "diagnose"].includes(msg.action)) {
+      runAction(msg.action).then(sendResponse);
       return true; // async
     }
-
-    if (msg.action === "downloadOnly") {
-      downloadOnly()
-        .then((res) => {
-          if (res.error) {
-            errlog(res.error);
-            showPanel("error", res.error);
-          } else {
-            showPanel("ok", "Downloaded: " + JSON.stringify(res.detail));
-          }
-          sendResponse(res);
-        })
-        .catch((e) => {
-          const m = String(e?.stack || e);
-          errlog(m);
-          showPanel("error", m);
-          sendResponse({ error: m });
-        });
-      return true; // async
-    }
-
-    if (msg.action === "diagnose") {
-      try {
-        const d = diagnose();
-        showPanel("info", "Diagnostic logged to console (" + d.radios.length + " radios, " + d.checkboxes.length + " checkboxes).");
-        sendResponse({ ok: true, diagnostic: d });
-      } catch (e) {
-        sendResponse({ error: String(e?.stack || e) });
-      }
-      return true;
-    }
-
     return false;
   });
+
+  // In-frame keyboard shortcuts (work when focus is inside this iframe, which
+  // is the common case): Cmd/Ctrl+Shift+Y create · +U download-only.
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey) return;
+      const k = (e.key || "").toLowerCase();
+      if (k !== "y" && k !== "u") return;
+      e.preventDefault();
+      runAction(k === "u" ? "downloadOnly" : "createLabel");
+    },
+    true
+  );
 
   // Push a diagnostic to the admin (top) frame via the background worker, so it
   // can be read/screenshot there without switching console contexts.
