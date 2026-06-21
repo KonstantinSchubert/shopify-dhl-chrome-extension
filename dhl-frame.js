@@ -37,9 +37,9 @@
     // product code. `option` is the required checkbox (or null).
     products: {
       DE: {
-        name: "Kleinpaket",
+        name: "DHL Kleinpaket (V62KP)",
         labels: [/kleinpaket/i],
-        codes: [],
+        codes: [/V62KP/i],
         option: null,
       },
       US: {
@@ -273,6 +273,21 @@
     return readChecked(el) === true;
   }
 
+  // Some products (e.g. a single domestic "DHL Kleinpaket (V62KP)") render as a
+  // pre-selected card with NO radio. Accept such a product only if its label or
+  // code is actually rendered in the product-selection area.
+  function findProductDisplay(rule) {
+    const scope =
+      document.querySelector("#account-product-options, #product-selection-menu, #additional-info-address") ||
+      document.body;
+    const text = (scope.innerText || scope.textContent || "").replace(/\s+/g, " ").trim();
+    const matched =
+      (rule.codes || []).some((r) => r.test(text)) || (rule.labels || []).some((r) => r.test(text));
+    if (!matched) return null;
+    const m = text.match(/([\p{L}0-9 .&-]*\((V\d{2}[A-Z0-9]+)\))/u); // e.g. "DHL Kleinpaket (V62KP)"
+    return { el: null, text: (m ? m[1].trim() : rule.name).slice(0, 80) };
+  }
+
   // -------------------------------------------------------------- option box
   function findCheckboxFor(option) {
     // Prefer stable ids when known, fall back to visible-text matching.
@@ -406,19 +421,27 @@
     if (!rule) return { error: `No product rule for category ${dest.category}.` };
 
     // 1–2: find + select product
-    const product = findProductInput(rule);
-    if (!product) {
-      const seen = radioCandidates()
-        .map((c) => `"${(c.text || "").slice(0, 70)}"`)
-        .join(" | ");
-      return {
-        error: `Shipping product "${rule.name}" not found for ${dest.country}. Aborting (won't guess). Radios seen: [ ${seen} ]`,
-      };
-    }
-    log("product candidate:", product.text.slice(0, 80));
-    const selected = await selectRadio(product.el);
-    if (!selected) {
-      return { error: `Selecting "${rule.name}" did not stick. Aborting.` };
+    let product = findProductInput(rule); // a selectable radio?
+    if (product) {
+      log("product candidate (radio):", product.text.slice(0, 80));
+      const selected = await selectRadio(product.el);
+      if (!selected) {
+        return { error: `Selecting "${rule.name}" did not stick. Aborting.` };
+      }
+    } else {
+      // No matching radio — accept only if the product is genuinely rendered
+      // (e.g. a single domestic product that's already selected). Else abort.
+      const disp = findProductDisplay(rule);
+      if (!disp) {
+        const seen = radioCandidates()
+          .map((c) => `"${(c.text || "").slice(0, 70)}"`)
+          .join(" | ");
+        return {
+          error: `Shipping product "${rule.name}" not found for ${dest.country}. Aborting (won't guess). Radios seen: [ ${seen} ]`,
+        };
+      }
+      product = disp;
+      log("product already active (no radio):", disp.text);
     }
 
     // 3: ensure option checkbox
